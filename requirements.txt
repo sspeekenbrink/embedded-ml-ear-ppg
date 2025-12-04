@@ -1,0 +1,13 @@
+matplotlib
+scipy
+heartpy
+dash
+pandas
+gunicorn
+numpy
+plotly
+wfdb
+torch
+scikit-learn
+dash-bootstrap-components
+seaborn
