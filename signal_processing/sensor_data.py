@@ -7,6 +7,8 @@ from .find_peaks import PeakFinder
 import pandas as pd
 from .filter import low_pass_filter, high_pass_filter, bandpass_filter
 
+from .acceleration_metrics import euclidean_accel, jerk_based_acceleration, sum_absolute_acceleration
+
 
 class SensorData:
     def __init__(self, file_location, sample_rate=99):
@@ -65,8 +67,6 @@ class SensorData:
         self.jerk_accel = self.jerk_based_acceleration()
         self.rms_accel = self.moving_rms_acceleration()
 
-
-
         logging.debug("Data formatted successfully.")
 
     @staticmethod
@@ -79,24 +79,22 @@ class SensorData:
         self.acceleration_z = self.acceleration_z / 16348.0
 
     def euclidean_accel(self):
-        return np.sqrt(
-            self.acceleration_x ** 2 + self.acceleration_y ** 2 + self.acceleration_z ** 2
-        )
+        return euclidean_accel(self.acceleration_x, self.acceleration_y, self.acceleration_z)
 
     def sum_absolute_acceleration(self):
-        return np.abs(self.acceleration_x) + np.abs(self.acceleration_y) + np.abs(self.acceleration_z)
+        return sum_absolute_acceleration(self.acceleration_x, self.acceleration_y, self.acceleration_z)
 
     def jerk_based_acceleration(self):
-        dax = np.diff(self.acceleration_x) * self.sample_rate
-        day = np.diff(self.acceleration_y) * self.sample_rate
-        daz = np.diff(self.acceleration_z) * self.sample_rate
-        jerk = np.sqrt(dax ** 2 + day ** 2 + daz ** 2)
-        return np.concatenate(([0], jerk))
+        return jerk_based_acceleration(
+            self.acceleration_x, self.acceleration_y, self.acceleration_z, self.sample_rate
+        )
 
     def moving_rms_acceleration(self, window_size=5):
-        a_abs = np.sqrt(self.acceleration_x ** 2 + self.acceleration_y ** 2 + self.acceleration_z ** 2)
+        a_abs = np.sqrt(
+            self.acceleration_x**2 + self.acceleration_y**2 + self.acceleration_z**2
+        )
         kernel = np.ones(window_size) / window_size
-        return np.convolve(a_abs ** 2, kernel, mode='same') ** 0.5
+        return np.convolve(a_abs**2, kernel, mode="same") ** 0.5
 
     def cutoff_index(self, start_index, end_index):
         self.led_green_values = self.led_green_values[start_index:end_index]
@@ -113,37 +111,34 @@ class SensorData:
         self.cutoff_index(start_index, end_index)
 
     def low_pass_filter(self, signal, cutoff=5, order=2):
-        nyquist = 0.5 * self.sample_rate
-        normalized_cutoff = cutoff / nyquist
-        b, a = butter(order, normalized_cutoff, btype='low', analog=False)
-        return filtfilt(b, a, signal)
+        return low_pass_filter(signal, self.sample_rate, cutoff, order)
 
     def plot_in_figure_pyplot(self, data, title, peaks=None):
         time = [i / self.sample_rate for i in range(len(data))]
         plt.figure()
         plt.plot(time, data)
         plt.title(title)
-        plt.xlabel('Time (seconds)')
-        plt.ylabel('Value')
+        plt.xlabel("Time (seconds)")
+        plt.ylabel("Value")
         if peaks is not None:
             peaks_x = [time[i] for i in peaks]
             peaks_y = [data[i] for i in peaks]
-            plt.plot(peaks_x, peaks_y, 'ro')
+            plt.plot(peaks_x, peaks_y, "ro")
 
     def create_panda_df(self):
-        return pd.DataFrame({
-            "Time (s)": np.arange(len(self.led_green_values)) / self.sample_rate,
-            "LED Green": self.led_green_values,
-            "LED IR": self.led_ir_values,
-            "LED Red": self.led_red_values,
-            "Ambient": self.ambient_values,
-            "Accel X": self.acceleration_x,
-            "Accel Y": self.acceleration_y,
-            "Accel Z": self.acceleration_z,
-            "Accel Euclidean": self.accel_euclidean,
-            "Absolute Accel": self.absolute_accel,
-            "Jerk Accel": self.jerk_accel / 60,
-            "RMS Accel": self.rms_accel
-        })
-
-
+        return pd.DataFrame(
+            {
+                "Time (s)": np.arange(len(self.led_green_values)) / self.sample_rate,
+                "LED Green": self.led_green_values,
+                "LED IR": self.led_ir_values,
+                "LED Red": self.led_red_values,
+                "Ambient": self.ambient_values,
+                "Accel X": self.acceleration_x,
+                "Accel Y": self.acceleration_y,
+                "Accel Z": self.acceleration_z,
+                "Accel Euclidean": self.accel_euclidean,
+                "Absolute Accel": self.absolute_accel,
+                "Jerk Accel": self.jerk_accel / 60,
+                "RMS Accel": self.rms_accel,
+            }
+        )

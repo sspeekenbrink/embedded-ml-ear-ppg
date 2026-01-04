@@ -28,7 +28,7 @@ def bandpass_filter(signal, sampling_rate, low_cutoff, high_cutoff, order=4):
     high_normalized = high_cutoff / nyquist
     low_normalized = max(0.001, min(0.499, low_normalized))
     high_normalized = max(low_normalized + 0.001, min(0.499, high_normalized))
-    b, a = butter(order, [low_normalized, high_normalized], btype='band', analog=False)
+    b, a = butter(order, [low_normalized, high_normalized], btype="band", analog=False)
     return filtfilt(b, a, signal)
 
 

@@ -9,17 +9,17 @@ from scipy.signal import find_peaks
 
 
 def refine_peak_alignment(
-        rpeaks_times,
-        ear_signal,
-        ear_time,
-        window=0.2,
-        search_range=0.1,
-        step=0.005,
-        min_hr_bpm=30,
-        max_hr_bpm=240
+    rpeaks_times,
+    ear_signal,
+    ear_time,
+    window=0.2,
+    search_range=0.1,
+    step=0.005,
+    min_hr_bpm=30,
+    max_hr_bpm=240,
 ):
     best_shift = 0
-    min_avg_distance = float('inf')
+    min_avg_distance = float("inf")
     sample_rate = 100
     min_interval = 60.0 / max_hr_bpm * sample_rate
     max_interval = 60.0 / min_hr_bpm * sample_rate
@@ -30,13 +30,14 @@ def refine_peak_alignment(
 
     shifts = np.arange(-search_range, search_range + step, step)
 
-
     for shift in shifts:
         shifted_rpeaks = rpeaks_times + shift
         distances = []
 
         for rp_time in shifted_rpeaks:
-            in_window = (ear_peaks_times >= rp_time - window) & (ear_peaks_times <= rp_time + window)
+            in_window = (ear_peaks_times >= rp_time - window) & (
+                ear_peaks_times <= rp_time + window
+            )
             nearby_peaks = ear_peaks_times[in_window]
 
             if len(nearby_peaks) > 0:
@@ -58,8 +59,15 @@ def min_max_normalize(signal):
     return (signal - mn) / (mx - mn) if mx != mn else signal
 
 
-
-def compute_time_offset_crosscorr(timeA, signalA, timeB, signalB, interp_rate=1000.0, round_decimals=3, max_offset=None):
+def compute_time_offset_crosscorr(
+    timeA,
+    signalA,
+    timeB,
+    signalB,
+    interp_rate=1000.0,
+    round_decimals=3,
+    max_offset=None,
+):
     common_start = max(timeA[0], timeB[0])
     common_end = min(timeA[-1], timeB[-1])
     if common_end <= common_start:
@@ -68,15 +76,15 @@ def compute_time_offset_crosscorr(timeA, signalA, timeB, signalB, interp_rate=10
     num_points = int((common_end - common_start) * interp_rate)
     common_time = np.linspace(common_start, common_end, num_points)
 
-    fA = interp1d(timeA, signalA, kind='linear', bounds_error=False, fill_value=0.0)
-    fB = interp1d(timeB, signalB, kind='linear', bounds_error=False, fill_value=0.0)
+    fA = interp1d(timeA, signalA, kind="linear", bounds_error=False, fill_value=0.0)
+    fB = interp1d(timeB, signalB, kind="linear", bounds_error=False, fill_value=0.0)
     A_common = fA(common_time)
     B_common = fB(common_time)
 
     A_zero_mean = A_common - np.mean(A_common)
     B_zero_mean = B_common - np.mean(B_common)
 
-    xcorr = correlate(A_zero_mean, B_zero_mean, mode='full')
+    xcorr = correlate(A_zero_mean, B_zero_mean, mode="full")
     lags = np.arange(-len(A_zero_mean) + 1, len(B_zero_mean))
 
     if max_offset is not None:
@@ -92,29 +100,10 @@ def compute_time_offset_crosscorr(timeA, signalA, timeB, signalB, interp_rate=10
     return np.round(time_offset, round_decimals)
 
 
-
-def euclidean_accel(signal_x, signal_y, signal_z):
-    return np.sqrt(
-        signal_x ** 2 + signal_y ** 2 + signal_z ** 2
-    )
-
-
-def sum_absolute_acceleration(signal_x, signal_y, signal_z):
-    return np.abs(signal_x) + np.abs(signal_y) + np.abs(signal_z)
-
-
-def jerk_based_acceleration(signal_x, signal_y, signal_z, sample_rate=25):
-    dax = np.diff(signal_x) * sample_rate
-    day = np.diff(signal_y) * sample_rate
-    daz = np.diff(signal_z) * sample_rate
-    jerk = np.sqrt(dax ** 2 + day ** 2 + daz ** 2)
-    return np.concatenate(([0], jerk))
-
-
 def resample_signal(time, signal, original_rate, target_rate):
     duration = time[-1] - time[0]
     num_samples = max(2, int(duration * target_rate))
     new_time = np.linspace(time[0], time[-1], num_samples)
-    interpolator = interp1d(time, signal, kind='linear', fill_value='extrapolate')
+    interpolator = interp1d(time, signal, kind="linear", fill_value="extrapolate")
     new_signal = interpolator(new_time)
     return new_time, new_signal

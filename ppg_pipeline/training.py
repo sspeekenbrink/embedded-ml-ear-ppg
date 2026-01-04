@@ -1,10 +1,20 @@
-from sklearn.metrics import f1_score, classification_report, confusion_matrix, matthews_corrcoef
+from sklearn.metrics import (
+    f1_score,
+    classification_report,
+    confusion_matrix,
+    matthews_corrcoef,
+)
 
 from itertools import product
 from copy import deepcopy
 import pandas as pd
 
-from ppg_pipeline.models import build_cnn, CNNConfig, DilatedCNNConfig, build_dilated_cnn
+from ppg_pipeline.models import (
+    build_cnn,
+    CNNConfig,
+    DilatedCNNConfig,
+    build_dilated_cnn,
+)
 from ppg_pipeline.utils import save_model_bundle
 
 import logging
@@ -12,7 +22,11 @@ import logging
 import torch
 from torch import nn
 
-from sklearn.metrics import precision_recall_curve, classification_report, confusion_matrix
+from sklearn.metrics import (
+    precision_recall_curve,
+    classification_report,
+    confusion_matrix,
+)
 import torch.nn.functional as F
 
 from scipy.optimize import linear_sum_assignment
@@ -22,7 +36,11 @@ from sklearn.metrics import roc_curve
 
 import numpy as np
 import torch
-from sklearn.metrics import precision_recall_curve, precision_recall_fscore_support, f1_score
+from sklearn.metrics import (
+    precision_recall_curve,
+    precision_recall_fscore_support,
+    f1_score,
+)
 
 PREDICTION_THRESHOLD = 0.5
 
@@ -40,7 +58,7 @@ def _config_to_dict(cfg):
             "use_batchnorm": cfg.use_batchnorm,
             "activation": cfg.activation,
             "pooling": cfg.pooling,
-            "double_every": cfg.double_every
+            "double_every": cfg.double_every,
         }
     elif isinstance(cfg, DilatedCNNConfig):
         return {
@@ -60,19 +78,19 @@ def _config_to_dict(cfg):
             "base_dilation": cfg.base_dilation,
             "out_channels": cfg.out_channels,
             "activation": cfg.activation,
-            "pooling": cfg.pooling
+            "pooling": cfg.pooling,
         }
     else:
         # Fallback for unknown config types
         return {"config_type": str(type(cfg).__name__), "config_str": str(cfg)}
 
 
-def _match_length(a: torch.Tensor, b: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def _match_length(
+    a: torch.Tensor, b: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Crops the longer tensor to match the length of the shorter one along the last dimension."""
     L = min(a.size(-1), b.size(-1))
     return a[..., :L], b[..., :L]
-
-
 
 
 @torch.no_grad()
@@ -89,6 +107,7 @@ def _collect_logits_and_targets(model, loader, device):
     logits_all = torch.cat(logits_all, dim=0)
     targets_all = torch.cat(targets_all, dim=0)
     return logits_all, targets_all
+
 
 def _best_thresh_for_f1_pos_from_logits(logits_cpu, targets_cpu):
     """
@@ -142,6 +161,7 @@ def _best_thresh_for_mcc_from_logits(logits_cpu, targets_cpu):
 
     return float(thresholds[idx]), float(mcc[idx])
 
+
 def _threshold_from_args_or_tune(args, logits_cpu, targets_cpu):
     """
     1) if --decision_threshold is set: use it
@@ -155,6 +175,7 @@ def _threshold_from_args_or_tune(args, logits_cpu, targets_cpu):
         return _best_thresh_for_f1_pos_from_logits(logits_cpu, targets_cpu)
     return 0.5, None
 
+
 def _metrics_at_threshold(logits_cpu, targets_cpu, threshold):
     """
     Compute metrics at a fixed threshold.
@@ -165,7 +186,7 @@ def _metrics_at_threshold(logits_cpu, targets_cpu, threshold):
     y_pred = (probs >= threshold).astype(np.int32)
 
     precision, recall, f1, _ = precision_recall_fscore_support(
-        y_true, y_pred, labels=[0,1], average=None, zero_division=0
+        y_true, y_pred, labels=[0, 1], average=None, zero_division=0
     )
     f1_macro = f1_score(y_true, y_pred, average="macro")
     acc = (y_true == y_pred).mean()
@@ -179,6 +200,7 @@ def _metrics_at_threshold(logits_cpu, targets_cpu, threshold):
         "accuracy": float(acc),
         "mcc": float(mcc),
     }
+
 
 def nms_1d(scores: np.ndarray, threshold: float, window: int) -> np.ndarray:
     """Apply 1D NMS to a single 1D score vector. Returns uint8 mask with 1s at kept peaks."""
@@ -197,14 +219,16 @@ def nms_1d(scores: np.ndarray, threshold: float, window: int) -> np.ndarray:
         if suppressed[i]:
             continue
         out[i] = 1
-        left  = max(0, i - window)
+        left = max(0, i - window)
         right = min(L, i + window + 1)
         suppressed[left:right] = True
 
     return out
 
 
-def apply_nms_over_windows(probs: np.ndarray, threshold: float, window: int) -> np.ndarray:
+def apply_nms_over_windows(
+    probs: np.ndarray, threshold: float, window: int
+) -> np.ndarray:
     if probs.ndim == 3 and probs.shape[1] == 1:
         flat = probs[:, 0, :]
         restore = lambda arr: arr[:, None, :]
@@ -218,20 +242,23 @@ def apply_nms_over_windows(probs: np.ndarray, threshold: float, window: int) -> 
         restore = lambda arr: arr.reshape(*new_prefix, L)
 
     out = np.stack(
-        [nms_1d(row, threshold=threshold, window=window) for row in flat],
-        axis=0
+        [nms_1d(row, threshold=threshold, window=window) for row in flat], axis=0
     ).astype(np.uint8)
 
     return restore(out)
 
 
-def postprocess_preds(probs: np.ndarray, threshold: float, nms_window: int) -> np.ndarray:
+def postprocess_preds(
+    probs: np.ndarray, threshold: float, nms_window: int
+) -> np.ndarray:
     if nms_window > 0:
         return apply_nms_over_windows(probs, threshold, nms_window)
     return (probs >= threshold).astype(np.uint8)
 
 
-def _evaluate_with_threshold(model, loader, args, threshold, *, log_prefix="Final Evaluation", print_reports=True):
+def _evaluate_with_threshold(
+    model, loader, args, threshold, *, log_prefix="Final Evaluation", print_reports=True
+):
     device = args.device
     nms_window = int(args.nms)
     model.eval()
@@ -292,8 +319,13 @@ def _compute_metrics_from_binary_lists(y_true_list, y_pred_list):
     }
 
 
-def train_epoch(model: nn.Module, loader: torch.utils.data.DataLoader, criterion: nn.Module,
-                optimizer: torch.optim.Optimizer, device: str) -> float:
+def train_epoch(
+    model: nn.Module,
+    loader: torch.utils.data.DataLoader,
+    criterion: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    device: str,
+) -> float:
     model.train()
     running_loss = 0.0
     for x, y in loader:
@@ -313,7 +345,12 @@ def train_epoch(model: nn.Module, loader: torch.utils.data.DataLoader, criterion
 
 
 @torch.inference_mode()
-def evaluate(model: nn.Module, loader: torch.utils.data.DataLoader, criterion: nn.Module, device: str) -> dict:
+def evaluate(
+    model: nn.Module,
+    loader: torch.utils.data.DataLoader,
+    criterion: nn.Module,
+    device: str,
+) -> dict:
     model.eval()
     running_loss = 0.0
     all_preds, all_trues = [], []
@@ -333,7 +370,9 @@ def evaluate(model: nn.Module, loader: torch.utils.data.DataLoader, criterion: n
     preds_flat = torch.cat(all_preds).flatten().numpy()
     trues_flat = torch.cat(all_trues).flatten().numpy()
 
-    f1_0, f1_1 = f1_score(trues_flat, preds_flat, labels=[0, 1], average=None, zero_division=0)
+    f1_0, f1_1 = f1_score(
+        trues_flat, preds_flat, labels=[0, 1], average=None, zero_division=0
+    )
     f1_macro = f1_score(trues_flat, preds_flat, average="macro", zero_division=0)
     mcc = matthews_corrcoef(trues_flat, preds_flat)
 
@@ -363,21 +402,21 @@ def run_single_training(model, train_loader, val_loader, criterion, optimizer, a
         "val_f1_macro": [],
         "val_mcc": [],
         "val_precision_pos": [],
-        "val_recall_pos": []
+        "val_recall_pos": [],
     }
 
     for epoch in range(1, args.epochs + 1):
         train_loss = train_epoch(model, train_loader, criterion, optimizer, args.device)
         val_metrics = evaluate(model, val_loader, criterion, args.device)
-        
+
         training_metrics["epochs"].append(epoch)
         training_metrics["train_losses"].append(float(train_loss))
-        training_metrics["val_losses"].append(float(val_metrics['loss']))
-        training_metrics["val_f1_class_0"].append(float(val_metrics['f1_class_0']))
-        training_metrics["val_f1_class_1"].append(float(val_metrics['f1_class_1']))
-        training_metrics["val_f1_macro"].append(float(val_metrics['f1_macro']))
-        training_metrics["val_mcc"].append(float(val_metrics['mcc']))
-        
+        training_metrics["val_losses"].append(float(val_metrics["loss"]))
+        training_metrics["val_f1_class_0"].append(float(val_metrics["f1_class_0"]))
+        training_metrics["val_f1_class_1"].append(float(val_metrics["f1_class_1"]))
+        training_metrics["val_f1_macro"].append(float(val_metrics["f1_macro"]))
+        training_metrics["val_mcc"].append(float(val_metrics["mcc"]))
+
         logging.info(
             f"Epoch {epoch:02d}/{args.epochs} | "
             f"Train Loss: {train_loss:.4f} | "
@@ -388,21 +427,37 @@ def run_single_training(model, train_loader, val_loader, criterion, optimizer, a
 
     if args.decision_threshold is not None:
         best_threshold = float(args.decision_threshold)
-        logging.info(f"Using fixed decision threshold from CLI: t = {best_threshold:.3f}")
+        logging.info(
+            f"Using fixed decision threshold from CLI: t = {best_threshold:.3f}"
+        )
     elif args.tune_threshold:
-        logging.info("Tuning decision threshold on validation set to maximize F1 (positive class)...")
-        val_logits, val_targets = _collect_logits_and_targets(model, val_loader, args.device)
-        best_threshold, best_f1 = _best_thresh_for_mcc_from_logits(val_logits, val_targets)
-        logging.info(f"Tuned threshold t* = {best_threshold:.3f} with Val F1_pos = {best_f1:.4f}")
+        logging.info(
+            "Tuning decision threshold on validation set to maximize F1 (positive class)..."
+        )
+        val_logits, val_targets = _collect_logits_and_targets(
+            model, val_loader, args.device
+        )
+        best_threshold, best_f1 = _best_thresh_for_mcc_from_logits(
+            val_logits, val_targets
+        )
+        logging.info(
+            f"Tuned threshold t* = {best_threshold:.3f} with Val F1_pos = {best_f1:.4f}"
+        )
     else:
         best_threshold = 0.5
         logging.info("Using default threshold t = 0.5 (no tuning requested).")
 
-    y_true_final, y_pred_final = _evaluate_with_threshold(model, val_loader, args, best_threshold, log_prefix="Final Evaluation on Test Set")
-    
+    y_true_final, y_pred_final = _evaluate_with_threshold(
+        model,
+        val_loader,
+        args,
+        best_threshold,
+        log_prefix="Final Evaluation on Test Set",
+    )
+
     training_metrics["final_threshold"] = float(best_threshold)
-    training_metrics["model_config"] = getattr(model, 'config', None)
-    
+    training_metrics["model_config"] = getattr(model, "config", None)
+
     return model, best_threshold, y_true_final, y_pred_final, training_metrics
 
 
@@ -424,6 +479,7 @@ class FocalLoss(nn.Module):
 
         return focal_loss.mean()
 
+
 PARAM_GRID = {
     "base_channels": [16],
     "num_blocks": [5],
@@ -433,7 +489,7 @@ PARAM_GRID = {
     "pool_every": [2],
     "activation": ["relu"],
     "pooling": ["max"],
-    "double_every": [2]
+    "double_every": [2],
 }
 
 DILATED_GRID = {
@@ -456,16 +512,18 @@ DILATED_GRID = {
 ENABLE_CNN = False
 ENABLE_DILATED = True
 
+
 def grid_generator():
     if ENABLE_CNN:
         keys, values = zip(*PARAM_GRID.items())
         for combo in product(*values):
-            yield (build_cnn, CNNConfig(**dict(zip(keys, combo))))
+            yield build_cnn, CNNConfig(**dict(zip(keys, combo)))
 
     if ENABLE_DILATED:
         d_keys, d_vals = zip(*DILATED_GRID.items())
         for combo in product(*d_vals):
-            yield (build_dilated_cnn, DilatedCNNConfig(**dict(zip(d_keys, combo))))
+            yield build_dilated_cnn, DilatedCNNConfig(**dict(zip(d_keys, combo)))
+
 
 def is_dominated(p_metrics: tuple, q_metrics: tuple) -> bool:
     all_ge = True
@@ -478,14 +536,18 @@ def is_dominated(p_metrics: tuple, q_metrics: tuple) -> bool:
             any_gt = True
     return all_ge and any_gt
 
+
 def find_pareto_front(points: list) -> list:
     front = []
     for p in points:
         p_metrics = p[:3]
-        is_p_dominated = any(is_dominated(p_metrics, q[:3]) for q in points if p is not q)
+        is_p_dominated = any(
+            is_dominated(p_metrics, q[:3]) for q in points if p is not q
+        )
         if not is_p_dominated:
             front.append(p)
     return front
+
 
 def sweep_configurations(train_loader, val_loader, criterion, args):
     trials = []
@@ -504,12 +566,21 @@ def sweep_configurations(train_loader, val_loader, criterion, args):
             train_epoch(model, train_loader, criterion, optimizer, args.device)
 
             base_metrics = evaluate(model, val_loader, criterion, args.device)
-            val_logits, val_targets = _collect_logits_and_targets(model, val_loader, args.device)
+            val_logits, val_targets = _collect_logits_and_targets(
+                model, val_loader, args.device
+            )
             tuned_t, _ = _threshold_from_args_or_tune(args, val_logits, val_targets)
             y_true_list, y_pred_list = _evaluate_with_threshold(
-                model, val_loader, args, tuned_t, log_prefix="Sweep Evaluation", print_reports=False
+                model,
+                val_loader,
+                args,
+                tuned_t,
+                log_prefix="Sweep Evaluation",
+                print_reports=False,
             )
-            thresh_metrics = _compute_metrics_from_binary_lists(y_true_list, y_pred_list)
+            thresh_metrics = _compute_metrics_from_binary_lists(
+                y_true_list, y_pred_list
+            )
 
             if args.event_tol is not None:
                 evt = event_prf1(y_true_list, y_pred_list, tol=int(args.event_tol))
@@ -517,7 +588,10 @@ def sweep_configurations(train_loader, val_loader, criterion, args):
             else:
                 epoch_score = thresh_metrics["f1_macro"]
 
-            if epoch_score > best_event_f1 or (abs(epoch_score - best_event_f1) < 1e-9 and base_metrics["loss"] < best_loss):
+            if epoch_score > best_event_f1 or (
+                abs(epoch_score - best_event_f1) < 1e-9
+                and base_metrics["loss"] < best_loss
+            ):
                 best_event_f1 = float(epoch_score)
                 best_loss = float(base_metrics["loss"])
                 best_state = deepcopy(model.state_dict())
@@ -529,31 +603,27 @@ def sweep_configurations(train_loader, val_loader, criterion, args):
         size_kb = n_params * 4 / 1024
 
         if args.max_model_size and size_kb > args.max_model_size:
-            logging.debug(f"[Sweep] Skipping config (size {size_kb:.0f}kB > {args.max_model_size}kB): {cfg}")
+            logging.debug(
+                f"[Sweep] Skipping config (size {size_kb:.0f}kB > {args.max_model_size}kB): {cfg}"
+            )
             continue
 
         config_dict = _config_to_dict(cfg)
-        
-        trial_metrics = {
-            "config": config_dict,
-            "final_metrics": {
-                "f1_0": best_metrics["f1_class_0"],
-                "f1_1": best_metrics["f1_class_1"],
-                "f1_macro": best_metrics["f1_macro"],
-                "mcc": best_metrics["mcc"],
-                "loss": best_loss,
-                "threshold": best_threshold,
-                "score": best_event_f1,
-                "event_metrics": best_evt,
-            },
-            "model_info": {
-                "size_kb": size_kb,
-                "num_parameters": n_params,
-            },
-        }
-        
-        trial_metrics["_state_dict"] = best_state
-        
+
+        trial_metrics = {"config": config_dict, "final_metrics": {
+            "f1_0": best_metrics["f1_class_0"],
+            "f1_1": best_metrics["f1_class_1"],
+            "f1_macro": best_metrics["f1_macro"],
+            "mcc": best_metrics["mcc"],
+            "loss": best_loss,
+            "threshold": best_threshold,
+            "score": best_event_f1,
+            "event_metrics": best_evt,
+        }, "model_info": {
+            "size_kb": size_kb,
+            "num_parameters": n_params,
+        }, "_state_dict": best_state}
+
         trials.append(trial_metrics)
 
         if best_evt is not None:
@@ -571,6 +641,7 @@ def sweep_configurations(train_loader, val_loader, criterion, args):
             )
     return trials
 
+
 def run_grid_search(train_loader, val_loader, criterion, args):
     """
     Performs a full grid search and identifies the best model based on macro F1-score.
@@ -584,7 +655,10 @@ def run_grid_search(train_loader, val_loader, criterion, args):
         return None, None
 
     if args.event_tol is not None:
-        best_trial = sorted(trials, key=lambda t: (-t["final_metrics"]["score"], t["final_metrics"]["loss"]))[0]
+        best_trial = sorted(
+            trials,
+            key=lambda t: (-t["final_metrics"]["score"], t["final_metrics"]["loss"]),
+        )[0]
         evt = best_trial["final_metrics"].get("event_metrics")
         if evt is not None:
             logging.info(
@@ -592,14 +666,19 @@ def run_grid_search(train_loader, val_loader, criterion, args):
                 f"[TP={evt['tp']} FP={evt['fp']} FN={evt['fn']}]"
             )
     else:
-        best_trial = sorted(trials, key=lambda t: (-t["final_metrics"]["f1_macro"], t["final_metrics"]["loss"]))[0]
+        best_trial = sorted(
+            trials,
+            key=lambda t: (-t["final_metrics"]["f1_macro"], t["final_metrics"]["loss"]),
+        )[0]
 
     best_cfg = best_trial["config"]
     best_state = best_trial["_state_dict"]
 
     logging.info("\n--- Best Configuration ---")
     logging.info(f"Config: {best_cfg}")
-    logging.info(f"F1 Macro: {best_trial['final_metrics']['f1_macro']:.4f} | MCC: {best_trial['final_metrics']['mcc']:.4f} | Size: {best_trial['model_info']['size_kb']:.1f}kB | Val Loss: {best_trial['final_metrics']['loss']:.4f}")
+    logging.info(
+        f"F1 Macro: {best_trial['final_metrics']['f1_macro']:.4f} | MCC: {best_trial['final_metrics']['mcc']:.4f} | Size: {best_trial['model_info']['size_kb']:.1f}kB | Val Loss: {best_trial['final_metrics']['loss']:.4f}"
+    )
 
     if isinstance(best_cfg, CNNConfig):
         best_model = build_cnn(best_cfg).to(args.device)
@@ -608,6 +687,7 @@ def run_grid_search(train_loader, val_loader, criterion, args):
     best_model.load_state_dict(best_state)
 
     return best_cfg, best_model, trials
+
 
 def run_pareto_search(train_loader, val_loader, criterion, args):
     logging.info("Starting Pareto Front Search...")
@@ -619,9 +699,17 @@ def run_pareto_search(train_loader, val_loader, criterion, args):
         return []
 
     points_to_check = [
-        (t["final_metrics"]["f1_0"], t["final_metrics"]["f1_1"], -t["model_info"]["size_kb"], 
-         t["config"], t["_state_dict"], t["model_info"]["size_kb"], 
-         t["final_metrics"]["event_metrics"], t["final_metrics"]["mcc"]) for t in trials
+        (
+            t["final_metrics"]["f1_0"],
+            t["final_metrics"]["f1_1"],
+            -t["model_info"]["size_kb"],
+            t["config"],
+            t["_state_dict"],
+            t["model_info"]["size_kb"],
+            t["final_metrics"]["event_metrics"],
+            t["final_metrics"]["mcc"],
+        )
+        for t in trials
     ]
 
     front = find_pareto_front(points_to_check)
@@ -629,15 +717,37 @@ def run_pareto_search(train_loader, val_loader, criterion, args):
 
     logging.info("\n--- Pareto-Optimal Configurations ---")
     save_records = []
-    for i, (f1_0, f1_1, _neg_size, cfg, state, size_kb, event_metrics, mcc) in enumerate(front):
+    for i, (
+        f1_0,
+        f1_1,
+        _neg_size,
+        cfg,
+        state,
+        size_kb,
+        event_metrics,
+        mcc,
+    ) in enumerate(front):
         if event_metrics is not None:
             event_str = f" | EvtF1={event_metrics['f1']:.4f} P={event_metrics['precision']:.4f} R={event_metrics['recall']:.4f}"
         else:
             event_str = ""
-        
-        logging.info(f"Model {i:02d}: F1₀={f1_0:.4f} | F1₁={f1_1:.4f} | MCC={mcc:.4f} | Size={size_kb:.1f}kB{event_str} | Config: {cfg}")
+
+        logging.info(
+            f"Model {i:02d}: F1₀={f1_0:.4f} | F1₁={f1_1:.4f} | MCC={mcc:.4f} | Size={size_kb:.1f}kB{event_str} | Config: {cfg}"
+        )
         if args.save_top_models:
-            save_model_bundle(i, cfg, state, f1_0, f1_1, size_kb, args.top_model_dir, save_records, event_metrics, mcc)
+            save_model_bundle(
+                i,
+                cfg,
+                state,
+                f1_0,
+                f1_1,
+                size_kb,
+                args.top_model_dir,
+                save_records,
+                event_metrics,
+                mcc,
+            )
 
     if args.save_top_models and save_records:
         summary_path = args.top_model_dir / "summary.csv"
@@ -645,8 +755,6 @@ def run_pareto_search(train_loader, val_loader, criterion, args):
         logging.info(f"\n[Saved] Models and summary written to {args.top_model_dir}")
 
     return front, trials
-
-
 
 
 def event_prf1(y_true_list, y_pred_list, tol: int = 2):
@@ -695,8 +803,12 @@ def event_prf1(y_true_list, y_pred_list, tol: int = 2):
             fn += len(t_idx) - matches
 
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-    recall    = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-    f1        = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = (
+        2 * precision * recall / (precision + recall)
+        if (precision + recall) > 0
+        else 0.0
+    )
 
     return {
         "tp": tp,

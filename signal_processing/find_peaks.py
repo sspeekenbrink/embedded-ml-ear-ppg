@@ -4,6 +4,7 @@ import numpy as np
 
 from typing import Tuple
 
+
 class PeakFinder:
     def __init__(self, sample_rate=99, min_hr=60, max_hr=300):
         self.sample_rate = sample_rate
@@ -14,26 +15,25 @@ class PeakFinder:
         min_distance = int(self.sample_rate * 60 / self.max_hr)
         max_distance = int(self.sample_rate * 60 / self.min_hr)
         peaks, properties = scipy.signal.find_peaks(
-            data,
-            distance=min_distance,
-            prominence=0.1
+            data, distance=min_distance, prominence=0.1
         )
         return peaks
-
 
     def find_peaks_heartpy(self, data):
         min_distance = int(self.sample_rate * 60 / self.max_hr)
         max_distance = int(self.sample_rate * 60 / self.min_hr)
-        wd, m = hp.process(data, sample_rate=self.sample_rate, high_precision=False, clean_rr=False)
-        peaks = wd['peaklist']
+        wd, m = hp.process(
+            data, sample_rate=self.sample_rate, high_precision=False, clean_rr=False
+        )
+        peaks = wd["peaklist"]
         return peaks
 
 
 def snap_peaks_to_local_maxima(
-        ppg_signal: np.ndarray,
-        ppg_time: np.ndarray,
-        candidate_peak_times: np.ndarray,
-        window_seconds: float = 0.12
+    ppg_signal: np.ndarray,
+    ppg_time: np.ndarray,
+    candidate_peak_times: np.ndarray,
+    window_seconds: float = 0.12,
 ) -> Tuple[np.ndarray, np.ndarray]:
     if ppg_signal is None or ppg_time is None:
         raise ValueError("ppg_signal and ppg_time must be provided")
